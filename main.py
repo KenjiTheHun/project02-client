@@ -92,7 +92,7 @@ def web_service_get(url):
         #
         # we consider this a successful call and response
         #
-        break;
+        break
 
       #
       # failed, try again?
@@ -117,6 +117,111 @@ def web_service_get(url):
     logging.error(e)
     return None
 
+def web_service_post(url, data=None, json=None, headers=None):
+    """
+    Submits a POST request to a web service at most 3 times, since 
+    web services can fail to respond due to heavy traffic or other 
+    issues. If the web service responds with status code 200, 400, or 500, 
+    we consider this a valid response and return the response. 
+    Otherwise, we try again, at most 3 times. After 3 attempts, the 
+    function returns the last response.
+
+    Parameters
+    ----------
+    url : str
+        URL for calling the web service.
+    data : dict, optional
+        The data to send in the body of the POST request (default is None).
+    json : dict, optional
+        JSON data to send in the body of the POST request (default is None).
+    headers : dict, optional
+        Headers to include in the POST request (default is None).
+
+    Returns
+    -------
+    response : Response object
+        Response received from the web service, or None if the request failed.
+    """
+    try:
+        retries = 0
+
+        while True:
+            response = requests.post(url, data=data, json=json, headers=headers)
+
+            if response.status_code in [200, 400, 500]:
+                # Successful call and response
+                break
+
+            # Failed, try again
+            retries += 1
+            if retries < 3:
+                time.sleep(retries)
+                continue
+
+            # If we get here, we tried 3 times, we give up
+            break
+
+        return response
+
+    except Exception as e:
+        print("**ERROR**")
+        logging.error("web_service_post() failed:")
+        logging.error("url: " + url)
+        logging.error(e)
+        return None
+
+def web_service_put(url, data=None, json=None, headers=None):
+    """
+    Submits a PUT request to a web service at most 3 times, since 
+    web services can fail to respond due to heavy traffic or other 
+    issues. If the web service responds with status code 200, 400, or 500, 
+    we consider this a valid response and return the response. 
+    Otherwise, we try again, at most 3 times. After 3 attempts, the 
+    function returns the last response.
+
+    Parameters
+    ----------
+    url : str
+        URL for calling the web service.
+    data : dict, optional
+        The data to send in the body of the PUT request (default is None).
+    json : dict, optional
+        JSON data to send in the body of the PUT request (default is None).
+    headers : dict, optional
+        Headers to include in the PUT request (default is None).
+
+    Returns
+    -------
+    response : Response object
+        Response received from the web service, or None if the request failed.
+    """
+    try:
+        retries = 0
+
+        while True:
+            response = requests.put(url, data=data, json=json, headers=headers)
+
+            if response.status_code in [200, 400, 500]:
+                # Successful call and response
+                break
+
+            # Failed, try again
+            retries += 1
+            if retries < 3:
+                time.sleep(retries)
+                continue
+
+            # If we get here, we tried 3 times, we give up
+            break
+
+        return response
+
+    except Exception as e:
+        print("**ERROR**")
+        logging.error("web_service_post() failed:")
+        logging.error("url: " + url)
+        logging.error(e)
+        return None
 
 ###################################################################
 #
@@ -386,12 +491,9 @@ def download(baseurl, display=False):
     # let's look at what we got back:
     #
     if res.status_code != 200:
-      # failed:
-      print("Failed with status code:", res.status_code)
-      print("url: " + url)
       if res.status_code in [400, 500]:  # we'll have an error message
         body = res.json()
-        print("Error message:", body["message"])
+        print(body["message"])
       #
       return
 
@@ -399,14 +501,15 @@ def download(baseurl, display=False):
     # deserialize and extract image:
     #
     body = res.json()
+    assets = jsons.load(body, Asset)
 
     #
     # TODO:
     #
-    userid = "?"
-    assetname = "?"  
-    bucketkey = "?"
-    bytes = "?"
+    userid = assets.user_id
+    assetname = assets.asset_name
+    bucketkey = assets.bucket_key
+    bytes = base64.b64decode(assets.data)
 
     print("userid:", userid)
     print("asset name:", assetname)
@@ -419,6 +522,8 @@ def download(baseurl, display=False):
     # TODO
     #
 
+    outfile = open(assetname, "wb") # open binary file for writing
+    outfile.write(bytes)
     print("Downloaded from S3 and saved as '", assetname, "'")
 
     #
@@ -476,11 +581,39 @@ def bucket_contents(baseurl):
       # any data? if not, break out of loop
       # display data
       #
+      # res = requests.get(url)
+      res = web_service_get(url)
+
+      if res.status_code != 200:
+        # failed:
+        print("Failed with status code:", res.status_code)
+        print("url: " + url)
+        if res.status_code in [400, 500]:
+          body = res.json()
+          print("Error message:", body["message"])
+
+        break
+
+      body = res.json()
+      data = body["data"]
+
+      if len(data) == 0:
+        break
+
+      for item in data:
+        bucketitem = jsons.load(item, BucketItem)
+        print(bucketitem.Key)
+        print(" ", bucketitem.LastModified)
+        print(" ", bucketitem.Size)
+        lastkey = bucketitem.Key
       
+      if len(data) < 12:
+        break
+
       #
       # TODO
       #
-      
+
       #
       # prompt...
       # if 'y' then continue, else break
@@ -545,10 +678,10 @@ def add_user(baseurl):
     # TODO
     #
     data = {
-      "?": email,
-      "??": last_name,
-      "???": first_name,
-      "???": folder
+      "email": email,
+      "lastname": last_name,
+      "firstname": first_name,
+      "bucketfolder": folder
     }
 
     #
@@ -562,6 +695,7 @@ def add_user(baseurl):
     #
     # res = requests.???(url, json=???)
     #
+    res = web_service_put(url, json=data)
 
     #
     # let's look at what we got back:
@@ -649,7 +783,7 @@ def upload(baseurl):
     api = '/image'
     url = baseurl + api + "/" + userid
 
-    res = requests.post(url, json=data)
+    res = web_service_post(url, json=data)
 
     #
     # let's look at what we got back:
@@ -750,7 +884,12 @@ while cmd != 0:
     users(baseurl)
   elif cmd == 3:
     assets(baseurl)
-  #
+  elif cmd == 4:
+    download(baseurl)
+  elif cmd == 6:
+    bucket_contents(baseurl)
+  elif cmd == 7:
+    add_user(baseurl)
   #
   # TODO: add calls to command functions for 4 - 7
   #
